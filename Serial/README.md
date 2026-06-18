@@ -9,8 +9,8 @@ Laser in a flow normal to its propagation direction (z-axis)
         		                    /   |               /   |   
         		                   /    |        ()    /    |        
         	     	              /     |       ()    /     |      
-             		             /      |      ()    /      |       
-        	            	    /       |-----()----/-------|   
+             	             /      |      ()    /      |       
+        	     	    /       |-----()----/-------|   
                            /        /    ()    /        /
                           /        /    ()    /        /
                          /        /    ()    /        /
