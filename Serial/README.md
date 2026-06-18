@@ -1,16 +1,17 @@
-Solves coupled Laser-Energy equatio
+Solves coupled Laser-Energy equation
+
 Laser in a flow normal to its propagation direction (z-axis)
 
 
 
-          			                   /|------------------/|    
-        			                    / |                 / |      
-        			                   /  |                /  |      
-        		                    /   |               /   |   
-        		                   /    |        ()    /    |        
-        	     	              /     |       ()    /     |      
-             	             /      |      ()    /      |       
-        	     	    /       |-----()----/-------|   
+        			   /|------------------/|    
+        			  / |                 / |      
+        			 /  |                /  |      
+        		        /   |               /   |   
+        		       /    |        ()    /    |        
+        	     	      /     |       ()    /     |      
+             		     /      |      ()    /      |       
+        	      	    /       |-----()----/-------|   
                            /        /    ()    /        /
                           /        /    ()    /        /
                          /        /    ()    /        /
