@@ -81,12 +81,12 @@ data_write("p.txt", p, nx, ny, nz);
 
 
 delete[] dv.u_star;
-delete[] dv.v_star; 
+delete[] dv.v_star;
 delete[] dv.w_star;
 delete[] dv.p_prime;
-delete[] dv.div; 
+delete[] dv.div;
 delete[] dv.div_dt;
-delete[] dv.div_dt;
+delete[] dv.T_new;
 
 
 
