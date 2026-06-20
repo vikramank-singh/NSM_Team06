@@ -1,3 +1,6 @@
+use -O2, -lfftw3 flags
+
+
 Coupled Navier-Stokes - Paraxial Equation Solver
 
 Incompressible Navier Stokes with Boussinesq approximations
