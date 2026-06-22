@@ -1,0 +1,11 @@
+bin/
+advi/
+*.optrpt
+*.opt.yaml
+*.yaml
+T.txt
+u.txt
+v.txt
+w.txt
+I.txt
+p.txt
