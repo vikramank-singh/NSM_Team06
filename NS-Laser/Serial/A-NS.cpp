@@ -22,7 +22,7 @@ double beta = 5.5e-7;
 double C = 2.2e-8;
 double wn = 60000.0; // wavenuber k
 
-double dt = 0.5*dx*dx/4;
+double dt = 0.9*dx*dx/4;
 
 double *Ar = new double[nx*ny*nz];
 double *Ai = new double[nx*ny*nz];
@@ -63,14 +63,16 @@ dv.T_new = new double[nx*ny*nz];
 initialization(Ar, Ai, u, v, w, I, T, p, beta, nx, ny, nz, lx, ly, dx, dy, dz);
 initialize_wavnumbers(kx, ky, nx, ny, lx, ly, dx, dy);
 
-for (int itr=0; itr<1500; itr++){
+int Nitr = 5000;
+	
+for (int itr=0; itr<Nitr; itr++){
 	ns_compute(u, v, w, p, T, I, Pr, Ra, nx, ny, nz, dx, dy, dz, dt, dv);
 	A_compute_ss(Ar, Ai, T, kx, ky, in, out, ff, fb, nx, ny, nz, beta, wn, C, dz);
 	for(int i=0; i<nx*ny*nz; i++) I[i] = Ar[i]*Ar[i] + Ai[i]*Ai[i];
 	std::cout<<"itr = "<<itr<<std::endl;
 	}
 
-std::cout<<"Time ="<<1500*dt;
+std::cout<<"Physical Time ="<<Nitr*dt;
 	
 data_write("T.txt", T, nx, ny, nz);
 data_write("u.txt", u, nx, ny, nz);
