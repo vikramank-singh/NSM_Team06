@@ -83,6 +83,18 @@ dv.div = alloc_field(n);
 dv.div_dt = alloc_field(n);
 dv.T_new = alloc_field(n);
 
+dv.dct_buf = alloc_field((nx-2)*(ny-2)*(nz-2));
+dv.lam_x = alloc_field(nx-2);
+dv.lam_y = alloc_field(ny-2);
+dv.lam_z = alloc_field(nz-2);
+dct_eigs(dv.lam_x, nx-2, dx);
+dct_eigs(dv.lam_y, ny-2, dy);
+dct_eigs(dv.lam_z, nz-2, dz);
+dv.dct_fwd = fftw_plan_r2r_3d(nz-2, ny-2, nx-2, dv.dct_buf, dv.dct_buf,
+	FFTW_REDFT10, FFTW_REDFT10, FFTW_REDFT10, FFTW_ESTIMATE);
+dv.dct_bwd = fftw_plan_r2r_3d(nz-2, ny-2, nx-2, dv.dct_buf, dv.dct_buf,
+	FFTW_REDFT01, FFTW_REDFT01, FFTW_REDFT01, FFTW_ESTIMATE);
+
 
 initialization(Ar, Ai, u, v, w, I, T, p, beta, nx, ny, nz, lx, ly, dx, dy, dz);
 initialize_wavnumbers(kx, ky, nx, ny, lx, ly, dx, dy);
@@ -113,6 +125,12 @@ free(dv.p_prime);
 free(dv.div);
 free(dv.div_dt);
 free(dv.T_new);
+free(dv.dct_buf);
+free(dv.lam_x);
+free(dv.lam_y);
+free(dv.lam_z);
+fftw_destroy_plan(dv.dct_fwd);
+fftw_destroy_plan(dv.dct_bwd);
 
 free(Ar); free(Ai); free(T); free(u); free(v); free(w); free(p); free(I);
 free(kx); free(ky);

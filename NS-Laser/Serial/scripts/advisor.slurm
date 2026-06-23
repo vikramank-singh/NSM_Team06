@@ -15,5 +15,5 @@ export OMP_NUM_THREADS=1
 
 source ~/intel/oneapi/setvars.sh
 
-cd "$(dirname "${BASH_SOURCE[0]}")/.."
+cd "${SLURM_SUBMIT_DIR}"
 ./scripts/run_advisor.sh "$@"

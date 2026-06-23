@@ -61,21 +61,25 @@ Fix what Advisor/vec-report flag (non-restrict pointer aliasing, calls in hot lo
 ## Notes on the current vectorization-friendly refactor
 
 `functions.h`/`A-NS.cpp` already incorporate the fixes most commonly surfaced by the workflow above:
-- `__restrict__`-qualified pointer parameters on every hot function (`prediction`, `correction`, `T_compute`, `divergence`, `poisson_solver_Neumann_bc`, `A_compute_ss`) so the compiler doesn't have to assume aliasing between field arrays.
+- `__restrict__`-qualified pointer parameters on every hot function (`prediction`, `correction`, `T_compute`, `divergence`, `A_compute_ss`) so the compiler doesn't have to assume aliasing between field arrays.
 - `advection`/`diffusion` are `inline` with `restrict` args, so they fuse into the caller's loop body instead of being emitted as an out-of-line scalar call per grid point.
 - `pow(x,2)` replaced with `x*x`, and per-iteration divisions replaced with precomputed reciprocals hoisted outside the hot loops.
 - Field arrays are 64-byte aligned (`alloc_field`, `posix_memalign`) instead of plain `new[]`.
 - Grid size and iteration count are CLI-configurable (`./A-NS nx ny nz n_iters [--no-output]`) so Advisor/vec-report runs use a fast small case without a duplicated source file.
+- The pressure-correction Poisson solve uses a direct 3D DCT solver (`poisson_solver_Neumann_fft`) instead of a 100-sweep Gauss-Seidel relaxation (`functions.h`). The old relaxation loop had a genuine read-after-write recurrence the compiler correctly refused to vectorize — Advisor showed it as ~84% of total runtime. Since the domain is rectangular with Neumann BCs and FFTW is already a dependency (used by `A_compute_ss`), the equation is solved exactly in one pass: transform the RHS, divide by the discrete Laplacian's eigenvalues (`dct_eigs`), transform back. The existing `Neumann_bc()` mirror-boundary convention matches FFTW's half-sample symmetric DCT-II/III (`FFTW_REDFT10`/`FFTW_REDFT01`) exactly, so it's reused unchanged to refill the boundary planes after the solve.
 
 ## Benchmark results
 
-Wall-clock comparison of the pre-optimization revision (`e1b99d6`) vs. this branch's
-vectorization rewrite (`fa84b68`), production grid (201x201x20, 1500 iters), single node,
-SLURM `debug` partition (`bench/bench_orig.slurm`, `bench/bench_opt.slurm`):
+Wall-clock comparison across three revisions, production grid (201x201x20, 1500 iters),
+single node, SLURM `debug` partition (`bench/bench_orig.slurm`, `bench/bench_opt.slurm`):
 
-| Revision      | Wall time (`real`) | `user` | `sys` |
-|---------------|---------------------|--------|-------|
-| Original      | 1534.497s (~25.6 min) | 1526.594s | 3.442s |
-| Optimized     | 617.749s (~10.3 min)  | 614.026s  | 2.476s |
+| Revision                              | Wall time (`real`) | `user`    | `sys`   |
+|----------------------------------------|---------------------|-----------|---------|
+| Original (`e1b99d6`)                   | 1534.497s (~25.6 min) | 1526.594s | 3.442s  |
+| Vectorized, Gauss-Seidel Poisson solve  | 617.749s (~10.3 min)  | 614.026s  | 2.476s  |
+| Vectorized, DCT-based Poisson solve     | 254.078s (~4.2 min)   | 251.073s  | 2.557s  |
 
-**~2.48x speedup (~60% reduction in wall-clock time).**
+**~6.0x speedup overall** (and a further ~2.4x on top of the vectorization-only result)
+from replacing the 100-sweep Gauss-Seidel relaxation with a direct FFTW-based DCT solve —
+removing the dominant, inherently-sequential hotspot Advisor identified (~84% of runtime)
+instead of just vectorizing around it.

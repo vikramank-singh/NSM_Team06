@@ -15,6 +15,12 @@ struct dummy_variables {
 	double *div = nullptr;
 	double *div_dt = nullptr;
 	double *T_new = nullptr;
+	double *dct_buf = nullptr;
+	double *lam_x = nullptr;
+	double *lam_y = nullptr;
+	double *lam_z = nullptr;
+	fftw_plan dct_fwd = nullptr;
+	fftw_plan dct_bwd = nullptr;
 };
 
 // ********************************************************* \\
@@ -117,19 +123,45 @@ void Neumann_bc(double *__restrict f, int nx, int ny, int nz){
 }
 
 // ************************************************************ \\
+// Eigenvalues of the 3-point Laplacian under half-sample symmetric
+// (DCT-II/III, Neumann) boundary conditions, length N = interior point
+// count along that axis. Used by poisson_solver_Neumann_fft below.
 
-void poisson_solver_Neumann_bc(double *__restrict u, const double *__restrict f, int nx, int ny, int nz, double dx,  double dy,  double dz, int nitr) { // grad^2 u = f
-	const double inv_dx2 = 1.0/(dx*dx), inv_dy2 = 1.0/(dy*dy), inv_dz2 = 1.0/(dz*dz);
-	const double inv_denom = 1.0 / (2.0 * (inv_dx2 + inv_dy2 + inv_dz2));
-	for (int itr=0; itr<nitr; itr++){
-		for (int k=1; k<nz-1; k++){
-			for (int j=1; j<ny-1; j++){
-				for (int i=1; i<nx-1; i++){
-					int idx = k*ny*nx + j*nx + i;
-						u[idx] = ( (u[idx+1]+u[idx-1])*inv_dx2 + (u[idx+nx]+u[idx-nx])*inv_dy2 + (u[idx+(nx*ny)]+u[idx-(nx*ny)])*inv_dz2 - f[idx] ) * inv_denom;
-					}}}
-		Neumann_bc(u, nx, ny, nz);
-		}
+void dct_eigs(double *__restrict lam, int N, double h){
+	const double scale = 4.0 / (h*h);
+	for (int m = 0; m < N; m++){
+		double s = std::sin(pi*m/(2.0*N));
+		lam[m] = -scale * s*s;
+	}
+}
+
+// ************************************************************ \\
+// Direct Poisson solve via 3D DCT (replaces Gauss-Seidel relaxation): the
+// boundary convention in Neumann_bc (boundary plane = nearest interior
+// plane) matches FFTW's half-sample symmetric REDFT10/REDFT01, so solving
+// on the interior subgrid and refilling boundaries via Neumann_bc reproduces
+// the same discrete BC without an iterative sweep.
+
+void poisson_solver_Neumann_fft(double *__restrict u, const double *__restrict f, int nx, int ny, int nz, double *__restrict buf, const double *__restrict lam_x, const double *__restrict lam_y, const double *__restrict lam_z, fftw_plan fwd, fftw_plan bwd){
+	const int Nx = nx-2, Ny = ny-2, Nz = nz-2;
+	for (int k=0; k<Nz; k++) for (int j=0; j<Ny; j++) for (int i=0; i<Nx; i++)
+		buf[(k*Ny+j)*Nx+i] = f[(k+1)*nx*ny + (j+1)*nx + (i+1)];
+
+	fftw_execute(fwd);
+
+	buf[0] = 0.0; // null-space / mean mode: pressure is defined up to a constant
+	for (int k=0; k<Nz; k++) for (int j=0; j<Ny; j++) for (int i=0; i<Nx; i++){
+		if (k==0 && j==0 && i==0) continue;
+		buf[(k*Ny+j)*Nx+i] /= (lam_x[i]+lam_y[j]+lam_z[k]);
+	}
+
+	fftw_execute(bwd);
+	const double inv_norm = 1.0/(8.0*Nx*Ny*Nz); // FFTW r2r unnormalized-transform scale
+
+	for (int k=0; k<Nz; k++) for (int j=0; j<Ny; j++) for (int i=0; i<Nx; i++)
+		u[(k+1)*nx*ny + (j+1)*nx + (i+1)] = buf[(k*Ny+j)*Nx+i] * inv_norm;
+
+	Neumann_bc(u, nx, ny, nz);
 }
 
 // ************************************************************ \\
@@ -230,7 +262,7 @@ void ns_compute(double *__restrict u, double *__restrict v, double *__restrict w
 	const double inv_dt = 1.0/dt;
 	for (int i=0; i<n; i++) {dv.div_dt[i] = dv.div[i] * inv_dt; }
 
-	poisson_solver_Neumann_bc(dv.p_prime, dv.div_dt, nx, ny, nz, dx, dy, dz, 100);
+	poisson_solver_Neumann_fft(dv.p_prime, dv.div_dt, nx, ny, nz, dv.dct_buf, dv.lam_x, dv.lam_y, dv.lam_z, dv.dct_fwd, dv.dct_bwd);
 	correction(dv.u_star, dv.v_star, dv.w_star, u, v, w, dv.p_prime, nx, ny, nz, dx, dy, dz, dt);
 	Dirichlet_bc(u, nx, ny, nz);
 	Dirichlet_bc(v, nx, ny, nz);
