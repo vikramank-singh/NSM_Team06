@@ -4,6 +4,7 @@
 #include<fstream>
 #include<cstdlib>
 #include<new>
+#include<omp.h>
 
 const double pi = 3.14159265358;
 
@@ -106,19 +107,24 @@ void divergence(double *__restrict f, const double *__restrict u, const double *
 // ************************************************************ \\
 
 void Neumann_bc(double *__restrict f, int nx, int ny, int nz){
-	#pragma omp for
+	// collapse(2) on every face-pair: the bottom/top and left/right loops are
+	// driven by nz (e.g. 20 for the production grid), smaller than the
+	// thread count -- without collapsing in the nx/ny dimension, most
+	// threads get 0 work items. Collapsing gives every face-pair nx*ny or
+	// ny*nz work items regardless of nz.
+	#pragma omp for collapse(2)
 	for (int j=0; j<ny; j++){ // front & back
 		for (int i=0; i<nx; i++){
 			f[j*nx + i] = f[nx*ny + j*nx + i];
 			f[(nz-1)*nx*ny + j*nx + i] = f[(nz-2)*nx*ny + j*nx + i];
 		}}
-	#pragma omp for
+	#pragma omp for collapse(2)
 	for (int k=0; k<nz; k++){ //  bottom & top
 		for (int i=0; i<nx; i++){
 			f[k*nx*ny + i] = f[k*nx*ny + nx + i];
 			f[k*nx*ny + (ny-1)*nx + i] = f[k*nx*ny + (ny-2)*nx + i];
 		}}
-	#pragma omp for
+	#pragma omp for collapse(2)
 	for (int k=0; k<nz; k++){ // left & right
 		for (int j=0; j<ny; j++){
 			f[k*nx*ny + j*nx] = f[k*nx*ny + j*nx + 1];
@@ -181,19 +187,19 @@ void poisson_solver_Neumann_fft(double *__restrict u, const double *__restrict f
 // ************************************************************ \\
 
 void Dirichlet_bc(double *__restrict f, int nx, int ny, int nz){
-	#pragma omp for
+	#pragma omp for collapse(2)
 	for (int j=0; j<ny; j++){ // front & back
 		for (int i=0; i<nx; i++){
 			f[j*nx + i] = 0.0;
 			f[(nz-1)*nx*ny + j*nx + i] = 0.0;
 		}}
-	#pragma omp for
+	#pragma omp for collapse(2)
 	for (int k=0; k<nz; k++){ //  bottom & top
 		for (int i=0; i<nx; i++){
 			f[k*nx*ny + i] = 0.0;
 			f[k*nx*ny + (ny-1)*nx + i] = 0.0;
 		}}
-	#pragma omp for
+	#pragma omp for collapse(2)
 	for (int k=0; k<nz; k++){ // left & right
 		for (int j=0; j<ny; j++){
 			f[k*nx*ny + j*nx] = 0.0;
@@ -210,19 +216,19 @@ void Dirichlet_bc(double *__restrict f, int nx, int ny, int nz){
 // repeated per-array BC calls cuts the remaining barrier count further.
 
 void Dirichlet_bc3(double *__restrict a, double *__restrict b, double *__restrict c, int nx, int ny, int nz){
-	#pragma omp for
+	#pragma omp for collapse(2)
 	for (int j=0; j<ny; j++){ // front & back
 		for (int i=0; i<nx; i++){
 			a[j*nx + i] = 0.0; b[j*nx + i] = 0.0; c[j*nx + i] = 0.0;
 			a[(nz-1)*nx*ny + j*nx + i] = 0.0; b[(nz-1)*nx*ny + j*nx + i] = 0.0; c[(nz-1)*nx*ny + j*nx + i] = 0.0;
 		}}
-	#pragma omp for
+	#pragma omp for collapse(2)
 	for (int k=0; k<nz; k++){ //  bottom & top
 		for (int i=0; i<nx; i++){
 			a[k*nx*ny + i] = 0.0; b[k*nx*ny + i] = 0.0; c[k*nx*ny + i] = 0.0;
 			a[k*nx*ny + (ny-1)*nx + i] = 0.0; b[k*nx*ny + (ny-1)*nx + i] = 0.0; c[k*nx*ny + (ny-1)*nx + i] = 0.0;
 		}}
-	#pragma omp for
+	#pragma omp for collapse(2)
 	for (int k=0; k<nz; k++){ // left & right
 		for (int j=0; j<ny; j++){
 			a[k*nx*ny + j*nx] = 0.0; b[k*nx*ny + j*nx] = 0.0; c[k*nx*ny + j*nx] = 0.0;
@@ -309,11 +315,12 @@ void T_compute(const double *__restrict u, const double *__restrict v, const dou
 // was the dominant cost when each kernel opened its own "parallel for".
 void ns_compute(double *__restrict u, double *__restrict v, double *__restrict w, double *__restrict p, double *__restrict T, const double *__restrict I, double Pr, double Ra, int nx, int ny,  int nz,  double dx,  double dy,  double dz, double dt, dummy_variables& dv){
 	const int n = nx*ny*nz;
+	// dv.p_prime is never read before poisson_solver_Neumann_fft below
+	// overwrites it entirely (interior via inverse DCT, boundary via
+	// Neumann_bc) -- no zero-init needed (that was only required by the old
+	// Gauss-Seidel solver, which needed an initial guess to iterate from).
 	#pragma omp parallel
 	{
-	#pragma omp for
-	for (int i=0; i<n; i++) dv.p_prime[i] = 0.0;
-
 	prediction(dv.u_star, dv.v_star, dv.w_star, u, v, w, p, T, Pr, nx, ny, nz, dx, dy, dz, dt);
 	Dirichlet_bc3(dv.u_star, dv.v_star, dv.w_star, nx, ny, nz);
 
