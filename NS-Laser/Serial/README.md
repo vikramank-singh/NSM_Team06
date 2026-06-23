@@ -66,3 +66,16 @@ Fix what Advisor/vec-report flag (non-restrict pointer aliasing, calls in hot lo
 - `pow(x,2)` replaced with `x*x`, and per-iteration divisions replaced with precomputed reciprocals hoisted outside the hot loops.
 - Field arrays are 64-byte aligned (`alloc_field`, `posix_memalign`) instead of plain `new[]`.
 - Grid size and iteration count are CLI-configurable (`./A-NS nx ny nz n_iters [--no-output]`) so Advisor/vec-report runs use a fast small case without a duplicated source file.
+
+## Benchmark results
+
+Wall-clock comparison of the pre-optimization revision (`e1b99d6`) vs. this branch's
+vectorization rewrite (`fa84b68`), production grid (201x201x20, 1500 iters), single node,
+SLURM `debug` partition (`bench/bench_orig.slurm`, `bench/bench_opt.slurm`):
+
+| Revision      | Wall time (`real`) | `user` | `sys` |
+|---------------|---------------------|--------|-------|
+| Original      | 1534.497s (~25.6 min) | 1526.594s | 3.442s |
+| Optimized     | 617.749s (~10.3 min)  | 614.026s  | 2.476s |
+
+**~2.48x speedup (~60% reduction in wall-clock time).**
