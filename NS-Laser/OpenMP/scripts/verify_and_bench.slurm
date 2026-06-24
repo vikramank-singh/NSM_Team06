@@ -51,11 +51,11 @@ head -20 vtune_hs_report.txt
 rm -rf vtune_hs vtune_hs_report.txt
 
 echo
-echo "==== production benchmark (full grid, 1500 iters, OMP_NUM_THREADS=48) ===="
+echo "==== production benchmark (full grid, 1500 iters, OMP_NUM_THREADS=24) ===="
 cp bin/A-NS bench/opt_out/A-NS
 cd bench/opt_out
 rm -f run.log time.log status.txt
-export OMP_NUM_THREADS=48
+export OMP_NUM_THREADS=24
 TIMEFORMAT='real %R
 user %U
 sys %S'

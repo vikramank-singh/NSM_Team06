@@ -343,13 +343,25 @@ void ns_compute(double *__restrict u, double *__restrict v, double *__restrict w
 
 // ********************************************************* \\
 
+// Parallelized SPMD-style like ns_compute: the k-loop (propagation through z)
+// has a genuine sequential dependency -- each plane's transform reads the
+// previous plane's result -- so every thread walks the same k sequence in
+// lockstep, and #pragma omp for/single inside each iteration divides the
+// actual per-plane work. fftw_execute itself isn't safe to call concurrently
+// on the same plan, hence #pragma omp single around it (same reasoning as
+// poisson_solver_Neumann_fft). The normalize + write-back steps are fused
+// into one pass (computing Ar/Ai directly from unnormalized `out`) to save
+// a barrier relative to a separate normalize-in-place loop.
 void A_compute_ss(double *__restrict Ar, double *__restrict Ai, const double *__restrict T, const double *__restrict kx, const double *__restrict ky, fftw_complex *__restrict in, fftw_complex *__restrict out, fftw_plan ff, fftw_plan fb, int nx, int ny, int nz, double beta, double wn, double C, double dz){
 	int i, j, k; double ca;
 	const double atten = exp(-beta*dz/2);
 	const double inv_norm = 1.0 / ((nx-1)*(ny-1));
 	const double inv_2wn = 1.0/(2*wn);
 	const double c_phase = C*wn*dz/2.0;
+	#pragma omp parallel private(i, j, k, ca)
+	{
 	for(k=1; k<nz; k++){
+		#pragma omp for collapse(2)
 		for(j=0; j<ny-1; j++){
 			for(i=0; i<nx-1; i++){
 			ca = c_phase*T[(k-1)*nx*ny + j*nx + i];
@@ -357,7 +369,9 @@ void A_compute_ss(double *__restrict Ar, double *__restrict Ai, const double *__
 			in[j*(nx-1) + i][1] = atten*(Ar[(k-1)*nx*ny + j*nx + i]*sin(ca) + Ai[(k-1)*nx*ny + j*nx + i]*cos(ca));
 			}
 		}
+		#pragma omp single
 		fftw_execute(ff);
+		#pragma omp for collapse(2)
 		for(j=0; j<ny-1; j++){
 			for(i=0; i<nx-1; i++){
 				ca = (kx[j*(nx-1) + i]*kx[j*(nx-1) + i] + ky[j*(nx-1) + i]*ky[j*(nx-1) + i])*dz*inv_2wn;
@@ -365,27 +379,28 @@ void A_compute_ss(double *__restrict Ar, double *__restrict Ai, const double *__
 				in[j*(nx-1) + i][1] = out[j*(nx-1) + i][0]*sin(ca) + out[j*(nx-1) + i][1]*cos(ca);
 			}
 		}
+		#pragma omp single
 		fftw_execute(fb);
-		for(i=0; i<(nx-1)*(ny-1); i++){
-			out[i][0] *= inv_norm;
-			out[i][1] *= inv_norm;
-		}
+		#pragma omp for collapse(2)
 		for(j=0; j<ny-1; j++){
 			for(i=0; i<nx-1; i++){
-				Ar[k*nx*ny + j*nx + i] = out[j*(nx-1) + i][0];
-				Ai[k*nx*ny + j*nx + i] = out[j*(nx-1) + i][1];
+				Ar[k*nx*ny + j*nx + i] = out[j*(nx-1) + i][0] * inv_norm;
+				Ai[k*nx*ny + j*nx + i] = out[j*(nx-1) + i][1] * inv_norm;
 			}
 		}
+		#pragma omp for
 		for(i=0; i<nx; i++){
 			Ar[k*nx*ny + (ny-1)*nx + i] = Ar[k*nx*ny + 0*nx + i];
 			Ai[k*nx*ny + (ny-1)*nx + i] = Ai[k*nx*ny + 0*nx + i];
 		}
+		#pragma omp for
 		for(j=0; j<ny; j++){
 			Ar[k*nx*ny + j*nx + nx-1] = Ar[k*nx*ny + j*nx + 0];
 			Ai[k*nx*ny + j*nx + nx-1] = Ai[k*nx*ny + j*nx + 0];
 		}
 
 	}
+	} // end #pragma omp parallel
 }
 
 // ********************************************************* \\

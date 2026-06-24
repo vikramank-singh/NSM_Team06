@@ -46,12 +46,21 @@ calls run inside `#pragma omp single` since FFTW plan execution isn't safe to
 call concurrently from multiple threads on the same plan/buffer.
 
 `A_compute_ss` (the periodic laser-field propagation, called once per main-loop
-iteration alongside `ns_compute`) is **not parallelized in this pass** — its
-outer `k`-loop has a genuine sequential dependency through shared FFTW
-`in`/`out` buffers. Threading it would need per-thread buffers/plans or FFTW's
-own thread support (`libfftw3_threads`, confirmed available alongside
-`libfftw3` in the FFTW install this project links against) — left as a
-follow-up.
+iteration alongside `ns_compute`) is now also parallelized: it's wrapped in
+its own `#pragma omp parallel` (SPMD-style, same pattern as `ns_compute`),
+with `#pragma omp for collapse(2)` on the pack/phase-multiply/normalize-writeback
+loops and `#pragma omp single` around each `fftw_execute` call (its `k`-loop
+still has a genuine sequential dependency through the shared `in`/`out`
+buffers, so the loop body itself can't be parallelized across `k` — only the
+work *within* each `k`-layer is). FFTW is also configured to use its own
+internal thread pool (`fftw_init_threads()` + `fftw_plan_with_nthreads()`,
+linking `libfftw3_threads`) so the `fftw_execute` calls themselves — both here
+and in `poisson_solver_Neumann_fft` — are multi-threaded even though only one
+OpenMP thread issues each call. This turned out to be the dominant lever (see
+"Current performance status" below) — `A_compute_ss` was previously fully
+single-threaded and was blocking all other threads from useful work during
+its phase each iteration, which wall-clock benchmarking exposed far more
+sharply than CPU-time hotspot attribution did.
 
 ## Correctness validation
 
@@ -83,11 +92,24 @@ survey+report pattern. Thread count defaults to the node's full core count
 | OpenMP, first pass (one `parallel for` per kernel call)         | ~241s (48 threads)  |
 | OpenMP, consolidated team + merged `Dirichlet_bc3`              | ~239-241s (48 threads) |
 | OpenMP, `collapse(2)` grain-size fix + dead-code removal, 48 threads | 236.879s       |
-| OpenMP, same code, 24 threads (measured sweet spot)             | **233.561s**        |
+| OpenMP, same code, 24 threads (measured sweet spot)             | 233.561s        |
+| OpenMP, `A_compute_ss` threaded + FFTW internal threading, 24 threads | **43.037s** |
 
-**This OpenMP port is correct but still only ~8% faster than the serial
-baseline**, not a real multi-core win. Two rounds of profiling-driven fixes
-applied so far:
+**Latest result: 43.037s at 24 threads — ~5.9x faster than the serial
+baseline, ~5.4x faster than the previous OpenMP revision.** Threading
+`A_compute_ss` (previously fully serial) was the dominant lever, confirmed via
+`scripts/verify_and_bench.slurm`: correctness PASS (bit-identical at
+`OMP_NUM_THREADS=1/4/48` against each other and against `../Serial/bin/A-NS`),
+and `user`/`real` time ratio (1156.380s / 43.037s ≈ 26.9) consistent with
+genuine multi-core utilization at 24 threads. `vtune -collect hotspots` on the
+production grid still shows `libgomp` barrier-wait dominating CPU-*time*
+share (~87%, `func@0x1dfd0`), but this no longer correlates with wall-clock —
+the earlier ~8%-faster ceiling was bottlenecked on `A_compute_ss` blocking all
+threads serially each iteration, which CPU-time-based attribution
+under-weighted relative to its actual wall-clock impact.
+
+Two earlier rounds of profiling-driven fixes (still in effect, but superseded
+as the dominant lever by `A_compute_ss` threading):
 
 1. **Grain size**: `Neumann_bc`/`Dirichlet_bc`/`Dirichlet_bc3`'s bottom/top and
    left/right face-pair loops were driven by `nz` (20 for the production
@@ -115,10 +137,11 @@ never fully amortize synchronization cost no matter how well the work is
 balanced across threads.
 
 **Next steps** (not yet done, follow-up work, in descending expected ROI):
-- Thread `A_compute_ss` (currently fully serial, ~6-7% of CPU time per the
-  hotspots data above as `apply`/`hf_9`/`r2cf_11`/etc.) — untried lever, would
-  need per-thread FFTW buffers/plans or `libfftw3_threads` (confirmed
-  available alongside `libfftw3` in this project's FFTW install).
+- Re-sweep thread count (1/2/4/8/12/16/24/32/48) now that `A_compute_ss`
+  threading + FFTW internal threading changed the workload balance — the
+  previous 16-24 thread sweet spot was measured before this change and may no
+  longer be optimal (FFTW's own thread pool adds a second layer of
+  parallelism on top of OpenMP's).
 - Eliminate `T_compute`'s copy-back loop (`T[n]=T_new[n]`, one more barrier
   per call) via a ping-pong pointer swap instead of a copy — requires
   threading a `double*&` reference through `ns_compute`/`A-NS.cpp`'s main

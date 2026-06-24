@@ -70,6 +70,12 @@ double *ky = alloc_field((nx-1)*(ny-1));
 fftw_complex* in  = new fftw_complex[(nx-1)*(ny-1)];
 fftw_complex* out = new fftw_complex[(nx-1)*(ny-1)];
 
+// Let FFTW use its own internal threading for the transforms themselves
+// (mature, low-overhead), independent of the OpenMP #pragma omp single
+// wrapping the fftw_execute call sites in A_compute_ss/poisson_solver_Neumann_fft.
+fftw_init_threads();
+fftw_plan_with_nthreads(omp_get_max_threads());
+
 fftw_plan ff = fftw_plan_dft_2d(nx-1, ny-1, in, out, FFTW_FORWARD, FFTW_ESTIMATE);
 fftw_plan fb = fftw_plan_dft_2d(nx-1, ny-1, in, out, FFTW_BACKWARD, FFTW_ESTIMATE);
 
@@ -102,6 +108,7 @@ initialize_wavnumbers(kx, ky, nx, ny, lx, ly, dx, dy);
 for (int itr=0; itr<n_iters; itr++){
 	ns_compute(u, v, w, p, T, I, Pr, Ra, nx, ny, nz, dx, dy, dz, dt, dv);
 	A_compute_ss(Ar, Ai, T, kx, ky, in, out, ff, fb, nx, ny, nz, beta, wn, C, dz);
+	#pragma omp parallel for
 	for(int i=0; i<n; i++) I[i] = Ar[i]*Ar[i] + Ai[i]*Ai[i];
 	std::cout<<"itr = "<<itr<<std::endl;
 	}
@@ -136,6 +143,7 @@ free(Ar); free(Ai); free(T); free(u); free(v); free(w); free(p); free(I);
 free(kx); free(ky);
 delete[] in; delete[] out;
 fftw_destroy_plan(ff); fftw_destroy_plan(fb);
+fftw_cleanup_threads();
 
 return 0;
 }

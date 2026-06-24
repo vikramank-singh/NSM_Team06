@@ -25,9 +25,11 @@ ifeq ($(FFTW_ROOT),)
   ifeq ($(FFTW_LIBS),)
     FFTW_LIBS := -lfftw3
   endif
+  # pkg-config's fftw3 module doesn't pull in the threads variant
+  FFTW_LIBS := -lfftw3_threads $(FFTW_LIBS) -lpthread
 else
   FFTW_CFLAGS := -I$(FFTW_ROOT)/include
-  FFTW_LIBS   := -L$(FFTW_ROOT)/lib -Wl,-rpath,$(FFTW_ROOT)/lib -lfftw3
+  FFTW_LIBS   := -L$(FFTW_ROOT)/lib -Wl,-rpath,$(FFTW_ROOT)/lib -lfftw3_threads -lfftw3 -lpthread
 endif
 
 ifeq ($(findstring icpx,$(CXX)),icpx)
