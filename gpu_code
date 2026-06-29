@@ -1,0 +1,9 @@
+Single node GPU implementation is available in gpu_code directory ported using openmp offload.
+We need to load NVHPC compiler to build this code and also see if FFTW is built with same compiler (NVHPC)
+
+sample commands:
+
+1. source ~/source/spack/share/spack/setup-env.sh
+2. spack load nvhpc@25.11 +mpi
+3. make gpu // to build gpu 
+make gpu-cufft // to build gpu executable using cufft on GPU device
